@@ -4,6 +4,7 @@ mod server;
 use crate::client::run_client;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
+use std::net::Ipv4Addr;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CniRequest {
@@ -13,6 +14,11 @@ pub struct CniRequest {
     ifname: String,
     args: Option<String>,
     path: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IpamResponse {
+    ip: String,
 }
 
 fn main() -> Result<()> {

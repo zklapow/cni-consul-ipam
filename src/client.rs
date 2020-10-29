@@ -1,34 +1,34 @@
-use crate::CniRequest;
+use crate::{CniRequest, IpamResponse};
 use anyhow::{anyhow, Error, Result};
 use serde_json;
-use std::io::Write;
+use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
 
 pub fn run_client() -> Result<()> {
     let req = get_request_from_env();
 
-    match req.command.to_lowercase().as_str() {
-        "add" => client_add(req),
-        "del" => client_del(req),
-        _ => Err(anyhow!("Unknown command {}", req.command)),
-    }
-}
+    let resp = send_request(req)?;
 
-pub fn client_add(req: CniRequest) -> Result<()> {
-    println!("Container ID: {}", req.container_id);
-    send_request(req)?;
+    let resp_json = serde_json::to_string(&resp)?;
+
+    println!("{}", resp_json);
+
     Ok(())
 }
 
-pub fn client_del(req: CniRequest) -> Result<()> {
-    Ok(())
-}
-
-pub fn send_request(req: CniRequest) -> Result<()> {
+pub fn send_request(req: CniRequest) -> Result<IpamResponse> {
     let mut stream = UnixStream::connect("/tmp/cni-ipam-consul.sock")?;
-    stream.write_all(serde_json::to_string(&req)?.as_bytes())?;
 
-    Ok(())
+    stream.write_all(serde_json::to_string(&req)?.as_bytes())?;
+    stream.write_all("\n".as_bytes())?;
+
+    let mut reader = BufReader::new(stream);
+
+    let mut buf: String = String::new();
+    let _ = reader.read_line(&mut buf)?;
+    let resp: IpamResponse = serde_json::from_str(buf.as_str())?;
+
+    Ok(resp)
 }
 
 fn get_request_from_env() -> CniRequest {

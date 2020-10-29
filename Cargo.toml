@@ -7,8 +7,9 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-ipc-channel = "0.14.1"
 anyhow = "1.0.33"
+cidr = "0.1.1"
+ipc-channel = "0.14.1"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 
