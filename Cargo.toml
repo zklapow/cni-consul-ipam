@@ -9,9 +9,13 @@ edition = "2018"
 [dependencies]
 anyhow = "1.0.33"
 cidr = { version = "0.1.1", features = ['serde'] }
+ctrlc = "3.1.7"
 ipc-channel = "0.14.1"
+hostname = "^0.3"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+consul = "0.3"
+clokwerk = "0.3.3"
 
 [[bin]]
 name = "consul"

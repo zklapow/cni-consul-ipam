@@ -1,27 +1,52 @@
+use crate::allocator::ConsulIpAllocator;
 use crate::cni::{CniRequest, IpamResponse};
 use anyhow::Result;
+use clokwerk::Scheduler;
 use serde_json;
+use std::collections::BTreeMap as Map;
 use std::io::Write;
 use std::io::{BufRead, BufReader};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::thread;
 
-pub fn run_server() -> Result<()> {
-    let listener = UnixListener::bind("/tmp/cni-ipam-consul.sock").unwrap();
+pub(crate) struct ConsulIpamServer {
+    allocator: ConsulIpAllocator,
+    scheduler: Scheduler,
+}
 
-    for mut stream in listener.incoming() {
-        match stream {
-            Ok(stream) => {
-                thread::spawn(|| handle_client(stream));
-            }
-            Err(err) => {
-                println!("Error: {}", err);
-                break;
-            }
-        }
+impl ConsulIpamServer {
+    pub fn new() -> Result<ConsulIpamServer> {
+        Ok(ConsulIpamServer {
+            allocator: ConsulIpAllocator::new()?,
+            scheduler: Scheduler::new(),
+        })
     }
 
-    Ok(())
+    pub fn run(self) -> Result<()> {
+        let listener = UnixListener::bind("/tmp/cni-ipam-consul.sock").unwrap();
+
+        ctrlc::set_handler(move || {
+            println!("Interrupted, shutting down");
+            std::fs::remove_file("/tmp/cni-ipam-consul.sock");
+
+            std::process::exit(0);
+        })
+        .expect("Error setting Ctrl-C handler");
+
+        for mut stream in listener.incoming() {
+            match stream {
+                Ok(stream) => {
+                    thread::spawn(|| handle_client(stream));
+                }
+                Err(err) => {
+                    println!("Error: {}", err);
+                    break;
+                }
+            }
+        }
+
+        Ok(())
+    }
 }
 
 fn handle_client(mut stream: UnixStream) {
