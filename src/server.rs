@@ -1,4 +1,4 @@
-use crate::{CniRequest, IpamResponse};
+use crate::cni::{CniRequest, IpamResponse};
 use anyhow::Result;
 use serde_json;
 use std::io::Write;
@@ -50,7 +50,5 @@ fn handle_stream(mut stream: UnixStream) -> Result<()> {
 }
 
 fn exec_request(req: CniRequest) -> Result<IpamResponse> {
-    Ok(IpamResponse {
-        ip: "127.0.0.1".to_string(),
-    })
+    Ok(IpamResponse::new(Vec::new(), Vec::new()))
 }

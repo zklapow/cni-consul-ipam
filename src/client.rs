@@ -1,11 +1,12 @@
-use crate::{CniRequest, IpamResponse};
+use crate::cni::{CniRequest, IpamResponse};
 use anyhow::{anyhow, Error, Result};
 use serde_json;
-use std::io::{BufRead, BufReader, Write};
+use std::io;
+use std::io::{BufRead, BufReader, Read, Write};
 use std::os::unix::net::UnixStream;
 
 pub fn run_client() -> Result<()> {
-    let req = get_request_from_env();
+    let req = get_request()?;
 
     let resp = send_request(req)?;
 
@@ -31,8 +32,11 @@ pub fn send_request(req: CniRequest) -> Result<IpamResponse> {
     Ok(resp)
 }
 
-fn get_request_from_env() -> CniRequest {
-    CniRequest {
+fn get_request() -> Result<CniRequest> {
+    let mut stdin = io::stdin();
+    let config = serde_json::from_reader(stdin)?;
+
+    Ok(CniRequest {
         command: std::env::var("CNI_COMMAND").expect("No CNI Command. Is CNI_COMMAND set?"),
         container_id: std::env::var("CNI_CONTAINERID")
             .expect("No container ID. Is CNI_CONTAINER_ID set?"),
@@ -40,5 +44,6 @@ fn get_request_from_env() -> CniRequest {
         ifname: std::env::var("CNI_IFNAME").expect("No interface name set. Is CNI_IFNAME set?"),
         args: std::env::var("CNI_ARGS").ok(),
         path: std::env::var("CNI_PATH").expect("No path set. Is CNI_PATH set?"),
-    }
+        config,
+    })
 }
