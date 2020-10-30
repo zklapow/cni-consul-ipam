@@ -1,11 +1,19 @@
-use anyhow::{anyhow, Result};
-use cidr::{Ipv4Cidr, Ipv4Inet};
+use anyhow::{anyhow, Context, Result};
+use cidr::{Cidr, Inet, Ipv4Cidr, Ipv4Inet};
 use clokwerk::timeprovider::ChronoTimeProvider;
 use clokwerk::{Job, Scheduler, TimeUnits};
+use consul::kv::{KVPair, KV};
 use consul::session::{Session, SessionEntry};
 use consul::{Client, Config};
 use hostname;
+use std::convert::TryFrom;
+use std::error::Error;
+use std::net::Ipv4Addr;
+use std::ops::Add;
 use std::str::FromStr;
+use std::thread::sleep;
+use std::time::Duration;
+use thiserror::Error;
 
 #[derive(Debug, Clone)]
 pub struct ConsulIpAllocator {
@@ -22,8 +30,9 @@ impl ConsulIpAllocator {
         let hostname = hostname.to_str().expect("Could not get hostname");
 
         let entry = SessionEntry {
-            Name: Some(String::from("consul-ipam") + hostname),
-            TTL: Some(String::from("2m")),
+            Name: Some(String::from("consul-ipam-") + hostname),
+            TTL: Some(String::from("30s")),
+            Behavior: Some(String::from("delete")),
             ..Default::default()
         };
 
@@ -42,7 +51,7 @@ impl ConsulIpAllocator {
 
     pub fn start(&self, scheduler: &mut Scheduler) {
         let renewal_clone = self.clone();
-        scheduler.every(30.seconds()).run(move || {
+        scheduler.every(10.seconds()).run(move || {
             println!("Renewing consul session");
             renewal_clone
                 .client
@@ -50,8 +59,78 @@ impl ConsulIpAllocator {
         });
     }
 
-    pub fn allocate_from(cidr: Ipv4Cidr) -> Result<Ipv4Inet> {
-        let ip = Ipv4Inet::from_str("192.168.1.1")?;
-        Ok(ip)
+    pub fn stop(&self) {
+        self.client
+            .destroy(self.session_id.as_str(), None)
+            .expect("Failed to close consul session");
     }
+
+    pub fn allocate_from(
+        &self,
+        network_name: String,
+        container_id: String,
+        cidr: Ipv4Cidr,
+    ) -> Result<Ipv4Inet> {
+        let prefix = format!("ipam/{}/", network_name);
+
+        let mut allocated_ips: Vec<Ipv4Addr> = KV::list(&self.client, prefix.as_str(), None)
+            .map_err(|_| ConsulError::GetError)?
+            .0
+            .iter()
+            .map(|pair| Ipv4Addr::from_str(pair.Value.as_str()).ok())
+            .flatten()
+            .collect();
+
+        allocated_ips.sort();
+
+        let highest_ip = allocated_ips
+            .last()
+            .map(|a| a.clone())
+            .or(cidr.iter().skip(1).next()) // Skip the .0 address here
+            .expect("No highest IP available? this is invalid");
+
+        // Skip all IPs in the CIDR prior to last-allocated
+        let mut ip_iter = cidr.iter().skip_while(|addr| *addr != highest_ip);
+
+        // Get the next IP in the CIDR, wrapping back to the first IP (skipping .0) if we have reached the end
+        let mut next_ip = ip_iter
+            .next()
+            .unwrap_or(cidr.iter().skip(1).next().expect("No valid IP in CIDR?"));
+        let mut ip_key = format!("ipam/{}/{}", network_name, next_ip.to_string());
+
+        while self
+            .client
+            .get(ip_key.as_str(), None)
+            .ok()
+            .map(|res| res.0)
+            .flatten()
+            .is_some()
+        {
+            next_ip = ip_iter.next().unwrap_or(cidr.first_address());
+            ip_key = format!("ipam/{}/{}", network_name, next_ip.to_string());
+        }
+
+        let alloc_kv_pair = KVPair {
+            Key: ip_key,
+            Value: container_id,
+            Session: Some(self.session_id.clone()),
+            ..Default::default()
+        };
+
+        self.client
+            .acquire(&alloc_kv_pair, None)
+            .map_err(|_| ConsulError::PutError)?;
+
+        Ok(Ipv4Inet::new_host(next_ip))
+    }
+}
+
+#[derive(Error, Debug)]
+pub enum ConsulError {
+    #[error("Error acquiring lock")]
+    LockError,
+    #[error("Error getting key")]
+    GetError,
+    #[error("Error updating key")]
+    PutError,
 }

@@ -10,6 +10,7 @@ pub struct CniConfig {
     #[serde(default)]
     pub args: Map<String, String>,
     pub ipam: ConsulIpamConfig,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub dns: Option<DnsConfig>,
 }
 
@@ -39,6 +40,7 @@ pub struct CniRequest {
     pub container_id: String,
     pub netns: String,
     pub ifname: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub args: Option<String>,
     pub path: String,
     pub config: CniConfig,
@@ -49,28 +51,34 @@ pub struct IpamResponse {
     pub cni_version: String,
     pub ips: Vec<IpResponse>,
     pub routes: Vec<Route>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dns: Option<DnsConfig>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IpResponse {
     pub version: String,
     pub address: Ipv4Inet,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub gateway: Option<Ipv4Inet>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub interface: Option<u32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Route {
     pub dst: Ipv4Cidr,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub gw: Option<Ipv4Inet>,
 }
 
 impl IpamResponse {
-    pub fn new(ips: Vec<IpResponse>, routes: Vec<Route>) -> IpamResponse {
+    pub fn new(ips: Vec<IpResponse>, routes: Vec<Route>, dns: Option<DnsConfig>) -> IpamResponse {
         IpamResponse {
             cni_version: "v0.4.0".to_string(),
             ips,
             routes,
+            dns,
         }
     }
 }
