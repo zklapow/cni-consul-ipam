@@ -17,19 +17,12 @@ pub fn run_client() -> Result<()> {
 
     info!("Handling request: {:?}", req);
 
-    let resp = send_request(req)?;
-
-    info!("Got response: {:?}", resp);
-
-    let resp_json = serde_json::to_string(&resp)?;
-
-    info!("Returning JSON: {}", resp_json);
-    println!("{}", resp_json);
+    send_request(req)?;
 
     Ok(())
 }
 
-pub fn send_request(req: CniRequest) -> Result<IpamResponse> {
+pub fn send_request(req: CniRequest) -> Result<()> {
     let mut stream = UnixStream::connect("/tmp/cni-ipam-consul.sock")?;
 
     stream.write_all(serde_json::to_string(&req)?.as_bytes())?;
@@ -39,9 +32,10 @@ pub fn send_request(req: CniRequest) -> Result<IpamResponse> {
 
     let mut buf: String = String::new();
     let _ = reader.read_line(&mut buf)?;
-    let resp: IpamResponse = serde_json::from_str(buf.as_str())?;
 
-    Ok(resp)
+    info!("Returning JSON: {}", buf);
+    println!("{}", buf);
+    Ok(())
 }
 
 fn get_request() -> Result<CniRequest> {
