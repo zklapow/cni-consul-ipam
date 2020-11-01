@@ -1,14 +1,25 @@
 use crate::cni::{CniRequest, IpamResponse};
 use anyhow::{anyhow, Error, Result};
+use log::{debug, error, info, trace, warn, LevelFilter, SetLoggerError};
+use log4rs::append::file::FileAppender;
+use log4rs::config::{Appender, Config, Logger, Root};
+use log4rs::encode::pattern::PatternEncoder;
+use log4rs::filter::threshold::ThresholdFilter;
 use serde_json;
 use std::io;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::os::unix::net::UnixStream;
 
 pub fn run_client() -> Result<()> {
+    init_logging();
+
     let req = get_request()?;
 
+    info!("Handling request: {:?}", req);
+
     let resp = send_request(req)?;
+
+    info!("Got response: {:?}", resp);
 
     let resp_json = serde_json::to_string(&resp)?;
 
@@ -36,6 +47,8 @@ fn get_request() -> Result<CniRequest> {
     let mut stdin = io::stdin();
     let config = serde_json::from_reader(stdin)?;
 
+    info!("CNI Config: {:?}", config);
+
     Ok(CniRequest {
         command: std::env::var("CNI_COMMAND").expect("No CNI Command. Is CNI_COMMAND set?"),
         container_id: std::env::var("CNI_CONTAINERID")
@@ -46,4 +59,26 @@ fn get_request() -> Result<CniRequest> {
         path: std::env::var("CNI_PATH").expect("No path set. Is CNI_PATH set?"),
         config,
     })
+}
+
+fn init_logging() {
+    let logfile = FileAppender::builder()
+        .encoder(Box::new(PatternEncoder::new("{d} - {l} - {L} - {m}{n}")))
+        .build("/tmp/log/consul-ipam-client.log")
+        .unwrap();
+
+    let config = Config::builder()
+        .appender(
+            Appender::builder()
+                .filter(Box::new(ThresholdFilter::new(LevelFilter::Info)))
+                .build("logfile", Box::new(logfile)),
+        )
+        .build(
+            Root::builder()
+                .appender("logfile")
+                .build(LevelFilter::Trace),
+        )
+        .unwrap();
+
+    let _handle = log4rs::init_config(config).unwrap();
 }

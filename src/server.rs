@@ -2,6 +2,11 @@ use crate::allocator::ConsulIpAllocator;
 use crate::cni::{CniRequest, IpResponse, IpamResponse};
 use anyhow::Result;
 use clokwerk::Scheduler;
+use log::LevelFilter;
+use log4rs::append::file::FileAppender;
+use log4rs::config::{Appender, Config, Logger, Root};
+use log4rs::encode::pattern::PatternEncoder;
+use log4rs::filter::threshold::ThresholdFilter;
 use serde_json;
 use std::borrow::Borrow;
 use std::collections::BTreeMap as Map;
@@ -26,6 +31,8 @@ impl ConsulIpamServer {
     }
 
     pub fn run(mut self) -> Result<()> {
+        init_logging();
+
         let listener = UnixListener::bind("/tmp/cni-ipam-consul.sock").unwrap();
 
         self.allocator.start(&mut self.scheduler);
@@ -104,4 +111,25 @@ fn exec_request(req: CniRequest, allocator: ConsulIpAllocator) -> Result<IpamRes
         req.config.ipam.routes,
         req.config.dns,
     ))
+}
+
+fn init_logging() {
+    let logfile = FileAppender::builder()
+        .encoder(Box::new(PatternEncoder::new("{d} - {l} - {L} - {m}{n}")))
+        .build("/tmp/log/consul-ipam-server.log")
+        .unwrap();
+
+    let config = Config::builder()
+        .appender(
+            Appender::builder()
+                .filter(Box::new(ThresholdFilter::new(LevelFilter::Info)))
+                .build("logfile", Box::new(logfile)),
+        )
+        .build(
+            Root::builder()
+                .appender("logfile")
+                .build(LevelFilter::Trace),
+        )
+        .unwrap();
+    let _handle = log4rs::init_config(config).unwrap();
 }
