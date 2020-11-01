@@ -1,5 +1,5 @@
-use cidr::{Ipv4Cidr, Ipv4Inet};
-use serde::{Deserialize, Serialize};
+use cidr::{Cidr, Ipv4Cidr, Ipv4Inet};
+use serde::{Deserialize, Serialize, Serializer};
 use std::collections::BTreeMap as Map;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -58,7 +58,8 @@ pub struct IpamResponse {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IpResponse {
     pub version: String,
-    pub address: Ipv4Inet,
+    #[serde(serialize_with = "serialize_host_ip")]
+    pub address: Ipv4Cidr,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub gateway: Option<Ipv4Inet>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -80,5 +81,16 @@ impl IpamResponse {
             routes,
             dns,
         }
+    }
+}
+
+fn serialize_host_ip<S>(addr: &Ipv4Cidr, ser: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    if addr.is_host_address() {
+        ser.serialize_str(&format!("{}/{}", addr, addr.network_length()))
+    } else {
+        ser.serialize_str(&format!("{}", addr))
     }
 }

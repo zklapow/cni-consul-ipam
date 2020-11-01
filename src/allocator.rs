@@ -70,7 +70,7 @@ impl ConsulIpAllocator {
         network_name: String,
         container_id: String,
         cidr: Ipv4Cidr,
-    ) -> Result<Ipv4Inet> {
+    ) -> Result<Ipv4Addr> {
         let prefix = format!("ipam/{}/", network_name);
 
         let mut allocated_ips: Vec<Ipv4Addr> = KV::list(&self.client, prefix.as_str(), None)
@@ -121,7 +121,7 @@ impl ConsulIpAllocator {
             .acquire(&alloc_kv_pair, None)
             .map_err(|_| ConsulError::PutError)?;
 
-        Ok(Ipv4Inet::new_host(next_ip))
+        Ok(next_ip)
     }
 }
 

@@ -1,6 +1,7 @@
 use crate::allocator::ConsulIpAllocator;
 use crate::cni::{CniRequest, IpResponse, IpamResponse};
 use anyhow::Result;
+use cidr::{Cidr, Ipv4Cidr};
 use clokwerk::Scheduler;
 use log::LevelFilter;
 use log4rs::append::file::FileAppender;
@@ -99,9 +100,11 @@ fn exec_request(req: CniRequest, allocator: ConsulIpAllocator) -> Result<IpamRes
     let allocated_addr =
         allocator.allocate_from(req.config.name, req.container_id, req.config.ipam.subnet)?;
 
+    let addr_cidr = Ipv4Cidr::new_host(allocated_addr);
+
     let ip_resp = IpResponse {
         version: String::from("4"),
-        address: allocated_addr,
+        address: addr_cidr,
         gateway: None,
         interface: None,
     };
