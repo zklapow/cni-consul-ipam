@@ -90,7 +90,7 @@ where
     S: Serializer,
 {
     if addr.is_host_address() {
-        ser.serialize_str(&format!("{}/{}", addr, addr.network_length()))
+        ser.serialize_str(&format!("{}/{}", addr, 22))
     } else {
         ser.serialize_str(&format!("{}", addr))
     }
