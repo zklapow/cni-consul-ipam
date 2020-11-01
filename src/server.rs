@@ -4,7 +4,8 @@ use anyhow::Result;
 use cidr::{Cidr, Ipv4Cidr};
 use clokwerk::Scheduler;
 use listenfd::ListenFd;
-use log::LevelFilter;
+use log::{error, info, warn, LevelFilter};
+use log4rs::append::console::ConsoleAppender;
 use log4rs::append::file::FileAppender;
 use log4rs::config::{Appender, Config, Logger, Root};
 use log4rs::encode::pattern::PatternEncoder;
@@ -46,7 +47,7 @@ impl ConsulIpamServer {
 
         let stop_allocator = self.allocator.clone();
         ctrlc::set_handler(move || {
-            println!("Interrupted, shutting down");
+            warn!("Interrupted, shutting down");
             std::fs::remove_file("/tmp/cni-ipam-consul.sock");
             stop_allocator.stop();
 
@@ -61,7 +62,7 @@ impl ConsulIpamServer {
                     thread::spawn(|| handle_client(stream, client_allocator));
                 }
                 Err(err) => {
-                    println!("Error: {}", err);
+                    error!("Error: {}", err);
                     break;
                 }
             }
@@ -75,7 +76,7 @@ impl ConsulIpamServer {
 
 fn handle_client(mut stream: UnixStream, allocator: ConsulIpAllocator) {
     if let Some(e) = handle_stream(stream, allocator).err() {
-        println!("Failed to handle request: {}", e);
+        error!("Failed to handle request: {}", e);
     }
 }
 
@@ -88,11 +89,11 @@ fn handle_stream(mut stream: UnixStream, allocator: ConsulIpAllocator) -> Result
     let _ = reader.read_line(&mut buf)?;
 
     let req: CniRequest = serde_json::from_str(buf.as_str())?;
-    println!("Got CNI request {:?}", req);
+    info!("Got CNI request {:?}", req);
 
     let resp = exec_request(req, allocator)?;
 
-    println!("Sending IPAM response: {:?}", resp);
+    info!("Sending IPAM response: {:?}", resp);
 
     writer.write_all(serde_json::to_string(&resp)?.as_bytes())?;
     writer.write_all("\n".as_bytes())?;
@@ -121,22 +122,19 @@ fn exec_request(req: CniRequest, allocator: ConsulIpAllocator) -> Result<IpamRes
 }
 
 fn init_logging() {
-    let logfile = FileAppender::builder()
-        .encoder(Box::new(PatternEncoder::new("{d} - {l} - {L} - {m}{n}")))
-        .build("/tmp/log/consul-ipam-server.log")
-        .unwrap();
+    let stdout = ConsoleAppender::builder()
+        .encoder(Box::new(PatternEncoder::new(
+            "{d} - {l} - {f}:{L} - {m}{n}",
+        )))
+        .build();
 
     let config = Config::builder()
         .appender(
             Appender::builder()
                 .filter(Box::new(ThresholdFilter::new(LevelFilter::Info)))
-                .build("logfile", Box::new(logfile)),
+                .build("stdout", Box::new(stdout)),
         )
-        .build(
-            Root::builder()
-                .appender("logfile")
-                .build(LevelFilter::Trace),
-        )
+        .build(Root::builder().appender("stdout").build(LevelFilter::Trace))
         .unwrap();
     let _handle = log4rs::init_config(config).unwrap();
 }

@@ -6,6 +6,7 @@ use consul::kv::{KVPair, KV};
 use consul::session::{Session, SessionEntry};
 use consul::{Client, Config};
 use hostname;
+use log::{error, info, warn};
 use std::convert::TryFrom;
 use std::error::Error;
 use std::net::Ipv4Addr;
@@ -52,7 +53,7 @@ impl ConsulIpAllocator {
     pub fn start(&self, scheduler: &mut Scheduler) {
         let renewal_clone = self.clone();
         scheduler.every(10.seconds()).run(move || {
-            println!("Renewing consul session");
+            info!("Renewing consul session");
             renewal_clone
                 .client
                 .renew(renewal_clone.session_id.as_str(), None);
@@ -73,7 +74,7 @@ impl ConsulIpAllocator {
     ) -> Result<Ipv4Addr> {
         let prefix = format!("ipam/{}/", network_name);
 
-        let mut allocated_ips: Vec<Ipv4Addr> = KV::list(&self.client, prefix.as_str(), None)
+        let allocated_ips: Vec<Ipv4Addr> = KV::list(&self.client, prefix.as_str(), None)
             .map_err(|_| ConsulError::GetError)?
             .0
             .iter()
@@ -81,21 +82,22 @@ impl ConsulIpAllocator {
             .flatten()
             .collect();
 
-        allocated_ips.sort();
-
-        let highest_ip = allocated_ips
-            .last()
-            .map(|a| a.clone())
-            .or(cidr.iter().skip(1).next()) // Skip the .0 address here
-            .expect("No highest IP available? this is invalid");
-
         // Skip all IPs in the CIDR prior to last-allocated
-        let mut ip_iter = cidr.iter().skip_while(|addr| *addr != highest_ip);
+        let mut ip_iter = cidr.iter().filter(|addr| {
+            if *addr == cidr.first_address() {
+                return false;
+            } else if allocated_ips.contains(&addr) {
+                return false;
+            }
+
+            return true;
+        });
 
         // Get the next IP in the CIDR, wrapping back to the first IP (skipping .0) if we have reached the end
         let mut next_ip = ip_iter
             .next()
-            .unwrap_or(cidr.iter().skip(1).next().expect("No valid IP in CIDR?"));
+            .ok_or(anyhow!("No available IP in iterator"))?;
+
         let mut ip_key = format!("ipam/{}/{}", network_name, next_ip.to_string());
 
         while self
@@ -106,7 +108,9 @@ impl ConsulIpAllocator {
             .flatten()
             .is_some()
         {
-            next_ip = ip_iter.next().unwrap_or(cidr.first_address());
+            next_ip = ip_iter
+                .next()
+                .ok_or(anyhow!("No available IP in iterator"))?;
             ip_key = format!("ipam/{}/{}", network_name, next_ip.to_string());
         }
 
