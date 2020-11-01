@@ -3,6 +3,7 @@ use crate::cni::{CniRequest, IpResponse, IpamResponse};
 use anyhow::Result;
 use cidr::{Cidr, Ipv4Cidr};
 use clokwerk::Scheduler;
+use listenfd::ListenFd;
 use log::LevelFilter;
 use log4rs::append::file::FileAppender;
 use log4rs::config::{Appender, Config, Logger, Root};
@@ -34,7 +35,10 @@ impl ConsulIpamServer {
     pub fn run(mut self) -> Result<()> {
         init_logging();
 
-        let listener = UnixListener::bind("/tmp/cni-ipam-consul.sock").unwrap();
+        let mut listenfd = ListenFd::from_env();
+        let listener = listenfd
+            .take_unix_listener(0)?
+            .unwrap_or_else(|| UnixListener::bind("/tmp/cni-ipam-consul.sock").unwrap());
 
         self.allocator.start(&mut self.scheduler);
 
