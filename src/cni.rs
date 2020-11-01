@@ -30,6 +30,7 @@ pub struct ConsulIpamConfig {
     #[serde(rename = "type")]
     pub plugin_type: String,
     pub subnet: Ipv4Cidr,
+    pub gateway: Ipv4Inet,
     #[serde(default)]
     pub routes: Vec<Route>,
 }

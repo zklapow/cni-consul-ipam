@@ -105,7 +105,7 @@ fn exec_request(req: CniRequest, allocator: ConsulIpAllocator) -> Result<IpamRes
     let ip_resp = IpResponse {
         version: String::from("4"),
         address: addr_cidr,
-        gateway: None,
+        gateway: Some(req.config.ipam.gateway),
         interface: None,
     };
 
