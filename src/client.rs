@@ -23,6 +23,7 @@ pub fn run_client() -> Result<()> {
 
     let resp_json = serde_json::to_string(&resp)?;
 
+    info!("Returning JSON: {}", resp_json);
     println!("{}", resp_json);
 
     Ok(())
