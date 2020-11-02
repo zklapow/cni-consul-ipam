@@ -15,20 +15,25 @@ use std::borrow::Borrow;
 use std::collections::BTreeMap as Map;
 use std::io::Write;
 use std::io::{BufRead, BufReader};
+use std::ops::DerefMut;
 use std::os::unix::net::{UnixListener, UnixStream};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
 pub(crate) struct ConsulIpamServer {
-    allocator: ConsulIpAllocator,
+    allocator: Arc<Mutex<ConsulIpAllocator>>,
     scheduler: Scheduler,
 }
 
 impl ConsulIpamServer {
     pub fn new() -> Result<ConsulIpamServer> {
+        let allocator = ConsulIpAllocator::new()?;
+        let mut scheduler = Scheduler::new();
+
+        allocator.start(&mut scheduler);
         Ok(ConsulIpamServer {
-            allocator: ConsulIpAllocator::new()?,
+            allocator: Arc::new(Mutex::new(allocator)),
             scheduler: Scheduler::new(),
         })
     }
@@ -41,15 +46,15 @@ impl ConsulIpamServer {
             .take_unix_listener(0)?
             .unwrap_or_else(|| UnixListener::bind("/tmp/cni-ipam-consul.sock").unwrap());
 
-        self.allocator.start(&mut self.scheduler);
-
         let thread_handle = self.scheduler.watch_thread(Duration::from_millis(100));
 
         let stop_allocator = self.allocator.clone();
         ctrlc::set_handler(move || {
             warn!("Interrupted, shutting down");
             std::fs::remove_file("/tmp/cni-ipam-consul.sock");
-            stop_allocator.stop();
+
+            let alloc = stop_allocator.lock().unwrap();
+            alloc.stop();
 
             std::process::exit(0);
         })
@@ -58,8 +63,8 @@ impl ConsulIpamServer {
         for mut stream in listener.incoming() {
             match stream {
                 Ok(stream) => {
-                    let client_allocator = self.allocator.clone();
-                    thread::spawn(|| handle_client(stream, client_allocator));
+                    let alloc_lock = self.allocator.clone();
+                    thread::spawn(|| handle_client(stream, alloc_lock));
                 }
                 Err(err) => {
                     error!("Error: {}", err);
@@ -74,13 +79,14 @@ impl ConsulIpamServer {
     }
 }
 
-fn handle_client(mut stream: UnixStream, allocator: ConsulIpAllocator) {
-    if let Some(e) = handle_stream(stream, allocator).err() {
+fn handle_client(mut stream: UnixStream, allocator: Arc<Mutex<ConsulIpAllocator>>) {
+    let mut alloc = allocator.lock().unwrap();
+    if let Some(e) = handle_stream(stream, alloc.deref_mut()).err() {
         error!("Failed to handle request: {}", e);
     }
 }
 
-fn handle_stream(mut stream: UnixStream, allocator: ConsulIpAllocator) -> Result<()> {
+fn handle_stream(mut stream: UnixStream, allocator: &mut ConsulIpAllocator) -> Result<()> {
     let mut writer = stream.try_clone().expect("Could not copy stream");
 
     let mut reader = BufReader::new(stream);
@@ -103,7 +109,10 @@ fn handle_stream(mut stream: UnixStream, allocator: ConsulIpAllocator) -> Result
     Ok(())
 }
 
-fn exec_request(req: CniRequest, allocator: ConsulIpAllocator) -> Result<Option<IpamResponse>> {
+fn exec_request(
+    req: CniRequest,
+    allocator: &mut ConsulIpAllocator,
+) -> Result<Option<IpamResponse>> {
     match req.command.to_lowercase().as_str() {
         "add" => exec_add(req, allocator).map(|v| Some(v)),
         "del" => exec_del(req, allocator).map(|_| None),
@@ -111,12 +120,12 @@ fn exec_request(req: CniRequest, allocator: ConsulIpAllocator) -> Result<Option<
     }
 }
 
-fn exec_del(req: CniRequest, allocator: ConsulIpAllocator) -> Result<()> {
+fn exec_del(req: CniRequest, allocator: &mut ConsulIpAllocator) -> Result<()> {
     allocator.release_from(req.config.name, req.container_id);
     Ok(())
 }
 
-fn exec_add(req: CniRequest, allocator: ConsulIpAllocator) -> Result<IpamResponse> {
+fn exec_add(req: CniRequest, allocator: &mut ConsulIpAllocator) -> Result<IpamResponse> {
     let allocated_addr =
         allocator.allocate_from(req.config.name, req.container_id, req.config.ipam.subnet)?;
 

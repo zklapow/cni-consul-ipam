@@ -7,6 +7,7 @@ use consul::session::{Session, SessionEntry};
 use consul::{Client, Config};
 use hostname;
 use log::{error, info, warn};
+use std::collections::BTreeMap as Map;
 use std::convert::TryFrom;
 use std::error::Error;
 use std::net::Ipv4Addr;
@@ -20,6 +21,7 @@ use thiserror::Error;
 pub struct ConsulIpAllocator {
     client: Client,
     session_id: String,
+    lease_map: Map<String, Ipv4Addr>,
 }
 
 impl ConsulIpAllocator {
@@ -47,6 +49,7 @@ impl ConsulIpAllocator {
         Ok(ConsulIpAllocator {
             client,
             session_id: id,
+            lease_map: Map::new(),
         })
     }
 
@@ -67,7 +70,7 @@ impl ConsulIpAllocator {
     }
 
     pub fn allocate_from(
-        &self,
+        &mut self,
         network_name: String,
         container_id: String,
         cidr: Ipv4Cidr,
@@ -116,7 +119,7 @@ impl ConsulIpAllocator {
 
         let alloc_kv_pair = KVPair {
             Key: ip_key,
-            Value: container_id,
+            Value: container_id.clone(),
             Session: Some(self.session_id.clone()),
             ..Default::default()
         };
@@ -125,24 +128,25 @@ impl ConsulIpAllocator {
             .acquire(&alloc_kv_pair, None)
             .map_err(|_| ConsulError::PutError)?;
 
+        self.lease_map.insert(container_id.clone(), next_ip);
+
         Ok(next_ip)
     }
 
-    pub fn release_from(&self, network_name: String, container_id: String) -> Result<()> {
-        let prefix = format!("ipam/{}/", network_name);
+    pub fn release_from(&mut self, network_name: String, container_id: String) -> Result<()> {
+        let leased_ip = self.lease_map.get(container_id.as_str());
 
-        let mut leased_vals = KV::list(&self.client, prefix.as_str(), None)
-            .map_err(|_| ConsulError::GetError)?
-            .0;
+        if let Some(addr) = leased_ip {
+            info!(
+                "Found leased IP {} for container {}, releasing",
+                addr, container_id
+            );
 
-        let maybe_leased_ip = leased_vals
-            .iter()
-            .filter(|v| v.Value == container_id)
-            .next();
-
-        if let Some(kv) = maybe_leased_ip {
             self.client
-                .release(&kv, None)
+                .delete(
+                    format!("ipam/{}/{}", network_name, addr.to_string()).as_str(),
+                    None,
+                )
                 .map_err(|e| ConsulError::LockError)?;
         }
 
