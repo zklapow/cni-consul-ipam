@@ -127,6 +127,27 @@ impl ConsulIpAllocator {
 
         Ok(next_ip)
     }
+
+    pub fn release_from(&self, network_name: String, container_id: String) -> Result<()> {
+        let prefix = format!("ipam/{}/", network_name);
+
+        let mut leased_vals = KV::list(&self.client, prefix.as_str(), None)
+            .map_err(|_| ConsulError::GetError)?
+            .0;
+
+        let maybe_leased_ip = leased_vals
+            .iter()
+            .filter(|v| v.Value == container_id)
+            .next();
+
+        if let Some(kv) = maybe_leased_ip {
+            self.client
+                .release(&kv, None)
+                .map_err(|e| ConsulError::LockError)?;
+        }
+
+        Ok(())
+    }
 }
 
 #[derive(Error, Debug)]

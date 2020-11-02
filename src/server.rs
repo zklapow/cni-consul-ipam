@@ -1,6 +1,6 @@
 use crate::allocator::ConsulIpAllocator;
 use crate::cni::{CniRequest, IpResponse, IpamResponse};
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use cidr::{Cidr, Ipv4Cidr};
 use clokwerk::Scheduler;
 use listenfd::ListenFd;
@@ -91,17 +91,32 @@ fn handle_stream(mut stream: UnixStream, allocator: ConsulIpAllocator) -> Result
     let req: CniRequest = serde_json::from_str(buf.as_str())?;
     info!("Got CNI request {:?}", req);
 
-    let resp = exec_request(req, allocator)?;
+    if let Some(resp) = exec_request(req, allocator)? {
+        info!("Sending IPAM response: {:?}", resp);
 
-    info!("Sending IPAM response: {:?}", resp);
-
-    writer.write_all(serde_json::to_string(&resp)?.as_bytes())?;
-    writer.write_all("\n".as_bytes())?;
+        writer.write_all(serde_json::to_string(&resp)?.as_bytes())?;
+        writer.write_all("\n".as_bytes())?;
+    } else {
+        writer.write_all("\n".as_bytes())?;
+    }
 
     Ok(())
 }
 
-fn exec_request(req: CniRequest, allocator: ConsulIpAllocator) -> Result<IpamResponse> {
+fn exec_request(req: CniRequest, allocator: ConsulIpAllocator) -> Result<Option<IpamResponse>> {
+    match req.command.to_lowercase().as_str() {
+        "add" => exec_add(req, allocator).map(|v| Some(v)),
+        "del" => exec_del(req, allocator).map(|_| None),
+        _ => Err(anyhow!("Unknown command")),
+    }
+}
+
+fn exec_del(req: CniRequest, allocator: ConsulIpAllocator) -> Result<()> {
+    allocator.release_from(req.config.name, req.container_id);
+    Ok(())
+}
+
+fn exec_add(req: CniRequest, allocator: ConsulIpAllocator) -> Result<IpamResponse> {
     let allocated_addr =
         allocator.allocate_from(req.config.name, req.container_id, req.config.ipam.subnet)?;
 
