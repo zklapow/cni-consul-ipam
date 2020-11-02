@@ -64,9 +64,9 @@ impl ConsulIpAllocator {
     }
 
     pub fn stop(&self) {
-        self.client
-            .destroy(self.session_id.as_str(), None)
-            .expect("Failed to close consul session");
+        if let Some(e) = self.client.destroy(self.session_id.as_str(), None).err() {
+            error!("Failed to close consul session: {}", e);
+        }
     }
 
     pub fn allocate_from(
