@@ -142,11 +142,19 @@ impl ConsulIpAllocator {
                 addr, container_id
             );
 
+            let pair = KVPair {
+                Key: format!("ipam/{}/{}", network_name, addr.to_string()),
+                Value: container_id.clone(),
+                Session: Some(self.session_id.clone()),
+                ..Default::default()
+            };
+
             self.client
-                .delete(
-                    format!("ipam/{}/{}", network_name, addr.to_string()).as_str(),
-                    None,
-                )
+                .release(&pair, None)
+                .map_err(|e| ConsulError::LockError)?;
+
+            self.client
+                .delete(pair.Key.as_str(), None)
                 .map_err(|e| ConsulError::LockError)?;
         }
 

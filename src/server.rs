@@ -34,7 +34,7 @@ impl ConsulIpamServer {
         allocator.start(&mut scheduler);
         Ok(ConsulIpamServer {
             allocator: Arc::new(Mutex::new(allocator)),
-            scheduler: Scheduler::new(),
+            scheduler,
         })
     }
 
