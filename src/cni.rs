@@ -7,6 +7,7 @@ pub struct CniConfig {
     #[serde(rename = "type")]
     pub plugin_type: String,
     pub name: String,
+    pub path: Option<String>,
     #[serde(default)]
     pub args: Map<String, String>,
     pub ipam: ConsulIpamConfig,
