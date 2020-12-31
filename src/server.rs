@@ -126,7 +126,7 @@ fn exec_del(req: CniRequest, allocator: &mut ConsulIpAllocator) -> Result<()> {
 }
 
 fn exec_add(req: CniRequest, allocator: &mut ConsulIpAllocator) -> Result<IpamResponse> {
-    let net_path = req.config.path.unwrap_or(req.config.name);
+    let net_path = req.config.ipam.path.unwrap_or(req.config.name);
     let allocated_addr =
         allocator.allocate_from(net_path, req.container_id, req.config.ipam.subnet)?;
 

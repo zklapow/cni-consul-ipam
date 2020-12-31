@@ -7,7 +7,6 @@ pub struct CniConfig {
     #[serde(rename = "type")]
     pub plugin_type: String,
     pub name: String,
-    pub path: Option<String>,
     #[serde(default)]
     pub args: Map<String, String>,
     pub ipam: ConsulIpamConfig,
@@ -30,6 +29,7 @@ pub struct DnsConfig {
 pub struct ConsulIpamConfig {
     #[serde(rename = "type")]
     pub plugin_type: String,
+    pub path: Option<String>,
     pub subnet: Ipv4Cidr,
     pub gateway: Ipv4Inet,
     #[serde(default)]
